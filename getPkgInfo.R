@@ -1,4 +1,4 @@
-## from ChatGPT - 
+## from ChatGPT - a helper script to write out all packages being used
 
 # Get package info from session
 sI <- sessionInfo()
