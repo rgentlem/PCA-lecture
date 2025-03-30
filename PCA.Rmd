@@ -1,5 +1,5 @@
 ---
-title: "Dimension Reduction"
+title: "Practical Applications of PCA"
 author: "Robert Gentleman"
 date: "2024-06-24"
 output: 
@@ -17,8 +17,12 @@ library(sjmisc)
 library(sjlabelled)
 library(plotly)
 library(scater)
+library(scran)
 library(GSEABase)
 library(org.Hs.eg.db)
+library(DescTools)
+library(scMerge)
+library(scDiagnostics)
 ```
 
 ## Introduction
@@ -31,13 +35,12 @@ library(org.Hs.eg.db)
 
 - In this lecture we will explore some of the tools and try to get a basic understanding of how these methods work and their strengths and weaknesses.
 
-## Topics
+## Rationale
 
-- what is an embedding...
-
-- low dimensional representations of distances
-
-- Principal Component Analysis
+- principal components provides a decomposition of the data where directions are associated with maximal variation in the data
+- using these directions as a basis for identifying problems with an analysis is helpful both because of the maximality and the orthogonality 
+- we can use PCA for dimension reduction, but that isn't its only use 
+- in some important cases model checking is greatly simplified 
 
 ## References
 
@@ -67,6 +70,7 @@ library(org.Hs.eg.db)
 - for images you can provide a $k$ dimensional vector as input and get back an image
 - for text completion (what most LLMs are base on) you put in a vector and get back a probability distribution on the next most likely word in the sentence.
 
+<!--
 ## Distances and Similarities
 
 - you will see a number of examples of classical machine learning
@@ -89,6 +93,8 @@ library(org.Hs.eg.db)
 - we want to find a low dimensional representation where the distances between points in this representation are close to those in the original measurement space
 
 - but these cannot be accurate - some corners need to be cut
+
+-->
 
 ## Dimension reduction
 
@@ -122,15 +128,12 @@ library(org.Hs.eg.db)
  
 ## Diagnostics
  
- - there seems to be little research or practical approaches to answering questions of the form:  "how well does the dimensionality reduction work?"
+ - there seems to be little research or practical approaches to answering questions of the form:  "How well does the dimensionality reduction work?"
  
  - we might want to know if there are specific features of the data that were obscured by the dimension reduction method being used
  
- - some of the tools in the next section might be helpful
  
- - looking at Pearson or Spearman correlations between the distances between observations in the original space versus the reduced dimension space
- 
-  - it seems like their are some opportunites to look for tools that can help ensure that these methods are performing approximately as inteded
+  - it seems like there are opportunites to develop tools that can help identify the effects of any processing or transforming of the data
 
 ## PCA
 
@@ -177,9 +180,30 @@ My main source:  *Multivariate Analysis*, Mardia, Kent, Bibby (1979)...which is 
   2. The vectors (eigenvectors) that are used to form the new coordinates (they are linear combinations of the original points).
   3. The new set of *features*, the rotated values.
 
+## Centering and Scaling
+
+- it is common to center the data before computing the PCA decomposition
+- this essentially makes the origin in the new coordinate system correspond to the per-variable mean vector (one could use other measures of center)
+- the PCs are **not invariant** to rescaling
+- the argument in favor of rescaling is that it will tend to put the variables on a more equal footing
+- but rescaling may be problematic in some settings (eg when some features are more important) and careful consideration of whether or not to rescale is essential
+
+<!--
+```{r exx}
+ wts = runif(100, 110, 220)
+ wtskg = wts/2.2
+ age = runif(100, 22, 77)
+ g1 = prcomp(cbind(wts, age))
+ g2 = prcomp(cbind(wtskg,age))
+##examine the eigenvalues and eigenvectors
+```
+-->
+
 ## Motivating Example
-Since we have five covariates, each student's score can be represented in 5-D space.
-The principal components give us a different coordinate system than the one based on the exam scores.
+
+- Since we have five covariates, each student's score can be represented in 5-D space.
+- The principal components give us a different coordinate system than the one based on the exam scores.
+- the default for `prcomp` is to *center* but not *scale* the input
 
 ```{r pca}
 v1 = prcomp(examScor)
@@ -253,11 +277,12 @@ head(v2$x, n=3)
 #round(v2$sdev, digits=3)
 ```
 
-## The Null Space
+## The Null Space - Dimension Reduction
 
-- It would be quite unusual in a real world example where the variables are measured with error for us to find a case where one or more of the eigenvalues is exactly zero
+- It would be quite unusual in a real world example where there is stochastic variation between individuals to find a case where one or more of the eigenvalues is exactly zero
 - So we use a cut-off of some form that says that if the variability in one direction is smaller than $\eta$ we don't think that dimension will be very helpful.
 - In our single cell analysis pipeline we will typically choose some fairly large number of PCs (eg 50) to use for clustering the data, this is a form of dimension reduction
+- if we simply use the first 50 eigenvalues to perform the embedding then we have effectively mapped all the other directions, for all individuals, into zero
 
 ## The Effect of Outliers
 - in our example we have test scores as percentages, so this limits the effect of outliers
@@ -362,10 +387,6 @@ F-statistic: 34.05 on 2 and 85 DF,  p-value: 1.378e-11
  - note that the coefficients are identical to the values for the first model with all PCs included
  - for the model fit on the original data the variables are co-linear and removing one affects the estimates for the others
 
-## Caveats
-- the principal components are not scale invariant
-- changing the scale (pounds to kilograms, scaling by the variance etc) all change the set of principal components we find and hence make interpretation harder
-
 ## Do we need all PCs?
 - it is useful at times to determine whether most (all?) of the important variation is 
 contained in the first $k$ PCs
@@ -437,7 +458,7 @@ The variables $1_{Cj}$ are indicator variables, the $i^{th}$ element is 1 if the
 $i^{th}$ observation is in the $j^{th}$ cluster and 0 otherwise.
 
 $$
- PC_l = \beta_1 \cdot 1_{C1} + \cdots + \beta_k \cdot 1_{Ck}
+ PC_l = \beta_1 \cdot 1_{C1} + \cdots + \beta_k \cdot 1_{Ck} + \epsilon
 $$
 We can fit this model for each of some selected number of PCs.
 
@@ -643,6 +664,7 @@ plot(pcs[,6]~clusters, xlab="Cluster ID", ylab="PC6", col=v1)
 - in the exam example we noted how the different rotations were things like the mean of the exam scores, or contrasts between exams
 ```{r echo=TRUE}
 rotation = attr(reducedDims(sc_exp_norm_trans)$PCA, "rotation")
+colnames(rotation) = paste0("D", 1:50)
 gn = row.names(rotation)
 gn[1:10]
 ```
@@ -653,9 +675,29 @@ gn[1:10]
 - we can see that four genes have very large (relative to the others) weights
 - so they are important and likely drive the values in PC6
 ```{r echo=TRUE}
-sort(abs(rotation[,6]),dec=TRUE)[1:10]
+sort(abs(rotation[,6]),dec=TRUE)[1:15]
 ```
 
+<!--
+FIXME - somehow this seems odd - probably needs more investigation, but why would we see such
+a strong signal where Gini drops off essentially along the lines of PC, Gini is really high for the first PCs 
+
+## Gini Index
+- the Gini index is a measure of inequality in a vector of positive values
+- it is often used to help identify disparity, where a small number of individuals have high income
+- the Gini is between 0 and 1, where 0 results if everyone gets the same amount, and 1 results when one person gets everything
+- we apply this method to the absolute value of the rotations (since sign is arbitrary this seems reasonable)
+
+- the observed Gini index is quite high suggesting that the weights are far from uniform
+
+```{r gini}
+print(Gini(abs(rotation[,6])))
+gnidx = apply(rotation, 2, function(x) Gini(abs(x)))
+sort(gnidx, dec=T)
+plot(1:50, gnidx)
+```
+
+-->
 ## A little more about the rotation
 
 - first see if the values are all positive, negative or a mixture
@@ -700,7 +742,9 @@ smoothScatter(pcs[,6], assays(sc_exp_norm_trans)$logcount["JUN",])
 - and you could imagine using some, potentially scaled in some way, as a signature for cell stress (if we validate that the signal we are seeing in more experiments)
 
 ## Zero fractions
-- Irizarry find a strong correlation between PC1 and the fraction of genes not detected 
+- Irizarry find a strong correlation between PC1 and the fraction of genes not detected within each sample
+- our analysis seems to recapitulate that finding (next slide)
+- looking at other PCs, or asking whether the clustering is associated with zero fraction, is left to the reader to explore
 
 ```{r zerofrac, echo=TRUE}
  counts = assays(sc_exp_norm_trans)$counts
@@ -845,74 +889,170 @@ top10
 
 ## Examine Batch Effects
 
-```{r setupbatch, echo=FALSE, eval=FALSE}
-##you need to run this once you download the GitHub repo to set up the intermediate files
-##used below
+ - PCA can be used to examine and understand batch effects
+ - When two samples (batches) have been integrated, using one of the many tools available there is still a chance that there are differences between the data points that are due to batch
+- this analysis is valuable any time you are combining data (not just for biology, or single cell)
+- after combining the data, we recommend using PCA on that combined data and regressing those PCs against batch
+- our example comes from the `scMerge` package
+- the data consist of 200 cells and 1047 genes from two batches of mouse ESCs
+- https://www.ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB-2600
 
-source("OSCAmultisample.R")
 
+```{r setupbatch, echo=FALSE}
+data(example_sce)
+data("segList_ensemblGeneID", package = "scMerge")
+example_sce = runPCA(example_sce, exprs_values = "logcounts")
 ```
-
-- you can also use PCA to examine batch effects
-- for this example we will use the `reference_data` and `query_data` from the `scDiagnostics` package
-- we are going to assume that some batch normalization has been carried out and then we will put them together into a single data set
-- compute PCAs and then regress the PCs against the batch indicator
-- we want to find linear combinations of the gene expression, so we need to transpose our input matrix since these typically have the genes as rows not columns
-- we scale the input columns
 
 ## Batch Effects in Single Cell Experiments
 
-- modeling bach effects in single cell experiments is a complex task
-- it will be good to familiarize yourself with the OSCA Multisample Book
-https://bioconductor.org/books/3.19/OSCA.multisample/
-- in particular if there are differences in cell type composition between the batches then normalization may impact biology
+```{r plotting, echo=FALSE, warning=FALSE, fig.show='hold', out.width="45%"}
 
+##plot the unmerged
+scater::plotPCA(example_sce, point_size=3,
+                colour_by = "cellTypes", 
+                shape_by = "batch")
+##merge
+scMerge2_res <- scMerge2(exprsMat = logcounts(example_sce),
+                         batch = example_sce$batch,
+                         ctl = segList_ensemblGeneID$mouse$mouse_scSEG,
+                         verbose = FALSE)
 
-```{r batcheffects1, echo=FALSE}
-##if these are missing source the file OSCAmultisample.R
-load("pcc.rda")
-load("batch.rda")
-load("pcaComb.rda")
+assay(example_sce, "scMerge2") <- scMerge2_res$newY
+
+set.seed(2022)
+
+example_sce <- scater::runPCA(example_sce, exprs_values = 'scMerge2', name="mergedPCA")    
+
+scater::plotPCA(example_sce, dimred="mergedPCA", point_size=3,
+                colour_by = "cellTypes", 
+                shape_by = "batch")
+mergedPCA = reducedDim(example_sce, "mergedPCA")
+percentVar = attributes(mergedPCA)$percentVar
+```
+
+- the batch correction looks pretty good 
+- but how do we know?
+
+## Batch Correction
+
+- we can take that merged data, compute a PCA on it and then regress each PC in turn against batch
+- the percentage of variation explained by the first 10 PCs (merged data) is: 
+`r round(percentVar[1:10], digits=1)`
+- only the first 3 PCs describe more than 2% of the variation, so we will consider the first 4 PCs
+
+$$
+ PC_l = 1 + \beta_1 \cdot 1_{B1} + \epsilon
+$$
+```{r batchreg, echo=FALSE}
+rsums = vector("list", length=5)
+for(i in 1:5) rsums[[i]] = summary(lm(mergedPCA[,i] ~ example_sce$batch))
+mR2 = sapply(rsums, function(x) x$adj.r.squared)
+```
+- and for the first 4 PCs we get adjusted multiple R^2 of `r round(mR2, digits=2)`
+
+## Batch Correction {.smaller}
+- so things look pretty good - but is there something more we should/could do?
+- it might be good to look at whether or not the correction is good for all cell types?
+
+<font size="2">
+```{r batchreg1}
+
+summary(lm(mergedPCA[,1] ~ -1 + cellTypes * batch, data=colData(example_sce)))
+
+```
+</font>
+
+## Cell Type and Batch Correction
+
+- so there seems to be a problem with at least one of the cell types
+- now we will turn to functionality in the `scDiagnostics` package to try and figure out what
+- we split the batch-corrected data back into the two separate data sets, B2 and B3
+- we compute PCA on the batch corrected B2 data and project the batch corrected B3 data into that space
+- if batch correction went as anticipated then the resulting data points should be intermingled, for all three groups
+- but there could be differences that are cell type dependent and we should see those using this analysis
+
+## Cell Type and Batch Correction
+
+```{r bcviascDiag, echo=FALSE, warning=FALSE}
+exB2 = example_sce[,example_sce$batch=="batch2"]
+exB3 = example_sce[,example_sce$batch=="batch3"]
+
+exB2$cellTypes <- as.character(exB2$cellTypes)
+exB3$cellTypes <- as.character(exB3$cellTypes)
+
+exB2var_genes <- getTopHVGs(exB2, n = 100)
+exB3var_genes <- getTopHVGs(exB3, n = 100)
+
+# Calculate the overlap coefficient between the reference and query HVGs
+overlap_coefficient <- calculateHVGOverlap(reference_genes = exB2var_genes, 
+                                           query_genes = exB3var_genes)
+
+# Display the overlap coefficient
+#overlap_coefficient
+
+##now lets look at projecting one into the other
+
+exB2 <- scater::runPCA(exB2, exprs_values = 'scMerge2')
+exB3 <- scater::runPCA(exB3, exprs_values = 'scMerge2')
+
+plotCellTypePCA(query_data=exB3, reference_data=exB2, query_cell_type_col = "cellTypes",
+                 ref_cell_type_col = "cellTypes", assay_name = "scMerge2",
+                pc_subset = 1:3)
+
 
 
 ```
-## Example from `batchelor`
-- in this example we have processed the data from vignette in the `batchelor` package
-- there are two brain data sets (Tasic et al. 2016; Zeisel et al. 2015) from the scRNAseq package. 
- - A more thorough explanation of each of these steps is available in the OSCA book.
- - not that while the tools in batchelor and other packages instantiate a PCA object into the combined single cell experiment **these are not the same as a PCA on the assays in that experiment**.
- - so we compute, and use, that PCA directly (code available in the repo for this document)
-```{r nocorrect}
- multR2raw = sapply(1:9, function(x) {
-     summary(lm(pcaComb$x[,x]~ batch - 1))$adj.r.squared
- })
- round(multR2raw, digits=4)
 
-```
- 
- 
-## After correction 
- - we now carry out the same calculation - regress each of the first 9 PCs against `batch`
- and report the multiple R^2 
- - the results are better, but not great
- - there are likely many differences between the two datasets, and batch correction isn't really appropriate
- - something more along the lines of data set alignment, perhaps based on cell type specific alignments would be more appropriate
-```{r bef2, echo=TRUE}
- multR2mnn = sapply(1:9, function(x) {
-     summary(lm(pcc$x[,x]~ batch - 1))$adj.r.squared
- })
- round(multR2mnn, digits=4)
+## Back to some math to understand projections
+
+- when we project (or embed) one data set into the space of another we are using the rotation matrix computed on the first data set
+- usually we only want to use a relatively small number of the principal components to do this
+- recall that for the `scMerge` example only 3 or 4 components explain more than 2% of the variation in the data
+- if we only use the first 3 eigenvectors then our data will be 3 dimensional and all the other directions have been projected into 0
+- the corresponding eigenvectors (those for directions 4 and up) describe the null space
+
+## Projections and the Null Space
+
+The principal components give us a different coordinate system than the one based on the exam scores.
+We can use the first three columns of the rotation matrix to create 3D vectors for each student
+If we do that then the remaining 2 vectors are the `null space` - any variation in those directions is now zero in our new coordinate space
+
+```{r pc2}
+v1 = prcomp(examScor)
+v1
 ```
 
+## Projections and the Null Space
 
-```{r plotting, echo=FALSE, eval=FALSE}
-##some code to plot, should you want to 
-plot(pcc$x[,1], pcc$x[,2], col=ifelse(combined$batch=='A', "goldenrod","slateblue"))
+- when we have computed PCs on one data set, they were optimized (by construction) to explain directions of variability in that data
+- we then might choose to use only a subset of those PCs, and in doing so we define a null space for the projection
+- any other data set that we want to project into that same space may have very different properties and you might be removing important information
+- so it is probably advisable to consider the projection of the new data into the null space as well and to explore whether or not there is variability there that might be important 
 
+## Projections and the Null Space {.smaller}
+
+-
+
+```{r projPCANull}
+pp1 = projectPCA(exB3, exB2,query_cell_type_col = "cellTypes",
+                 ref_cell_type_col = "cellTypes", assay_name = "scMerge2",
+                pc_subset = 1:10)
+
+varsB3 = apply(pp1[,1:10], 2, sd)
+varsB2 = apply(reducedDim(exB2, "mergedPCA"), 2, sd)[1:10]
+plot(varsB2, varsB3, xlab="St Dev B2", ylab="Std Dev B3", pch=19, col="slateblue")
+abline(a=0,b=1,lwd=2,col="cornflowerblue")
 ```
 
+## PCA with Cyclic data
+- from Universal prediction of cell-cycle position using transfer learning, Genome Biology volume 23, Article number: 41 (2022)
+![](CellCyclePCA.png){width=65%}
 
-
+## Thanks
+- this was work done while collaborating with the teaching teams at CSAMA (https://csama2025.bioconductor.eu/)
+- and Summer School Biological Data Science in Uzhhorod, Ukraine, July 2023
+- with lots of input from the students and faculty
 
 ## Appendix Slides
 
