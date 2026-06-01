@@ -848,7 +848,7 @@ the influence of extreme values, and scaled by a factor of 2 for visualization
 
 ## Projections and the Null Space
 
--
+- the null space is the part of the input that is projected into the origin (0's for all dimensions)
 
 ```{r projPCANull}
 pp1 = projectPCA(exB3, exB2,query_cell_type_col = "cellTypes",
