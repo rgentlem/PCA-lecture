@@ -35,14 +35,11 @@ editor: source
 knitr::opts_chunk$set(echo = FALSE)
 library(MVT)
 library(xtable)
-# library(kableExtra) # HTML-oriented; not used in this deck
 library(sjPlot)
 library(sjmisc)
 library(sjlabelled)
-# library(plotly) # HTML widgets are avoided in this deck
 library(scater)
 library(scran)
-#library(org.Hs.eg.db)
 library(DescTools)
 library(scDiagnostics)
 library(SingleCellExperiment)
